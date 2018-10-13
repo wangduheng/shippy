@@ -1,19 +1,20 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"google.golang.org/grpc"
+
 	"io/ioutil"
-	// "log"
+
+	microclient "github.com/micro/go-micro/client"
+	"github.com/micro/go-micro/cmd"
+	"golang.org/x/net/context"
 	"os"
 	pb "shippy/consignment-service/proto/consignment"
 )
 
 const (
-	ADDRESS           = "149.28.17.62:50051"
 	DEFAULT_INFO_FILE = "consignment.json"
 )
 
@@ -32,32 +33,40 @@ func parseFile(fileName string) (*pb.Consignment, error) {
 }
 
 func main() {
-
-	conn, err := grpc.Dial(ADDRESS, grpc.WithInsecure())
-	if err != nil {
-		panic(err)
-	}
-	defer conn.Close()
-	client := pb.NewShippingServiceClient(conn)
+	fmt.Println("client main1")
+	cmd.Init()
+	client := pb.NewShippingServiceClient("go.micro.srv.consignment", microclient.DefaultClient)
+	fmt.Println("client main2")
+	// conn, err := grpc.Dial(ADDRESS, grpc.WithInsecure())
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// defer conn.Close()
+	// client := pb.NewShippingServiceClient(conn)
 	infoFile := DEFAULT_INFO_FILE
 	if len(os.Args) > 1 {
 		infoFile = os.Args[1]
 	}
+	fmt.Println("client main3")
 	consignment, err := parseFile(infoFile)
 	if err != nil {
 		panic(err)
 	}
-	resp, err := client.CreateConsignment(context.Background(), consignment)
+	fmt.Println("client main4")
+	resp, err := client.CreateConsignment(context.TODO(), consignment)
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println("client main5")
 	fmt.Printf("create %t\n", resp.Created)
 
 	resps, err := client.GetConsignments(context.Background(), &pb.GetRequest{})
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println("client main6")
 	for _, item := range resps.Consignments {
 		fmt.Printf("%v\n", item)
 	}
+	fmt.Println("client main7")
 }

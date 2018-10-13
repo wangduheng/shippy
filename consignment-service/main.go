@@ -3,17 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc"
-	"net"
+	"github.com/micro/go-micro"
 	pb "shippy/consignment-service/proto/consignment"
-)
-
-const (
-	PORT = ":50051"
+	vesselProto "shippy/vessel-service/proto/vessel"
 )
 
 type IRepository interface {
 	Create(consignment *pb.Consignment) (*pb.Consignment, error) //存放货物
+	GetAll() []*pb.Consignment                                   //获取长湖中所有的货物
 }
 
 type Repository struct {
@@ -24,41 +21,54 @@ func (repo *Repository) Create(consignment *pb.Consignment) (*pb.Consignment, er
 	repo.consignments = append(repo.consignments, consignment)
 	return consignment, nil
 }
-func (repo *Repository) getAll() []*pb.Consignment {
+func (repo *Repository) GetAll() []*pb.Consignment {
 	return repo.consignments
 }
 
 type service struct {
-	repo Repository
+	repo         Repository
+	vesselClient vesselProto.VesselServiceClient
 }
 
-func (s *service) CreateConsignment(ctx context.Context, in *pb.Consignment) (*pb.Response, error) {
-	consignment, err := s.repo.Create(in)
-	if err != nil {
-		return nil, err
+func (s *service) CreateConsignment(ctx context.Context, req *pb.Consignment, resp *pb.Response) error {
+	// 检查是否有适合的货轮
+	vReq := &vesselProto.Specification{
+		Capacity:  int32(len(req.Containers)),
+		MaxWeight: req.Weight,
 	}
-	resp := &pb.Response{Created: true, Consignment: consignment}
-	return resp, nil
+	vResp, err := s.vesselClient.FindAvailable(context.Background(), vReq)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("found vessel:%s\n", vResp.Vessel.Name)
+	req.VesselId = vResp.Vessel.Id
+
+	consignment, err := s.repo.Create(req)
+	if err != nil {
+		return err
+	}
+	resp.Created = true
+	resp.Consignment = consignment
+	return nil
 
 }
 
-func (s *service) GetConsignments(ctx context.Context, req *pb.GetRequest) (*pb.Response, error) {
-	allConsignments := s.repo.getAll()
-	resp := &pb.Response{Consignments: allConsignments}
-	return resp, nil
+func (s *service) GetConsignments(ctx context.Context, req *pb.GetRequest, resp *pb.Response) error {
+	allConsignments := s.repo.GetAll()
+	resp.Consignments = allConsignments
+	return nil
 }
 
 func main() {
-	listener, err := net.Listen("tcp", PORT)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("listen on %s\n", PORT)
-	server := grpc.NewServer()
+
+	server := micro.NewService(micro.Name("go.micro.srv.consignment"), micro.Version("latest"))
+	server.Init()
 	repo := Repository{}
-	pb.RegisterShippingServiceServer(server, &service{repo})
-	if err := server.Serve(listener); err != nil {
-		fmt.Printf("failed to server:%v\n", err)
+	vClient := vesselProto.NewVesselServiceClient("go.micro.srv.vessel", server.Client())
+
+	pb.RegisterShippingServiceHandler(server.Server(), &service{repo, vClient})
+	if err := server.Run(); err != nil {
+		panic(err)
 	}
 
 }
